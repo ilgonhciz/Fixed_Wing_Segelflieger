@@ -25,7 +25,7 @@ int LServo_pwm_value = 128;
 int RServo_pwm_value = 128;
 
 int throttle, pitch, roll, yaw = 128;
-
+int arm,flightmode=1000;
 void setup() {
     Serial.begin(115200);
     delay(500);
@@ -59,6 +59,8 @@ void rc_ppm_read_values(){
   pitch = channel_value_list[2];
   roll = channel_value_list[1];
   yaw = channel_value_list[4];
+  arm = channel_value_list[5];
+  flightmode = channel_value_list[6];
   }
 
 void compute_control(){
@@ -67,8 +69,20 @@ void compute_control(){
   }
 
 void compute_engine_control(){
-  LEngine_pwm_value = 1000 + 1000 * normalizeThrottle(throttle) + normalizeThrottle(throttle)*500*normalizePRY(roll) -normalizeThrottle(throttle)*500*normalizePRY(yaw);
-  REngine_pwm_value = 1000 + 1000 * normalizeThrottle(throttle) - normalizeThrottle(throttle)*500*normalizePRY(roll) +normalizeThrottle(throttle)*500*normalizePRY(yaw);
+  LEngine_pwm_value = 1000 + 1000 * normalizeThrottle(throttle) + normalizeThrottle(throttle)*1000*normalizePRY(roll) +normalizeThrottle(throttle)*1000*normalizePRY(yaw);
+  REngine_pwm_value = 1000 + 1000 * normalizeThrottle(throttle) - normalizeThrottle(throttle)*1000*normalizePRY(roll) -normalizeThrottle(throttle)*1000*normalizePRY(yaw);
+  if(arm<1500){
+      LEngine_pwm_value=1000;
+      REngine_pwm_value=1000;
+    }
+  else{
+      if(LEngine_pwm_value<1050){
+          LEngine_pwm_value=1050;
+        }
+      if(REngine_pwm_value<1050){
+          REngine_pwm_value=1050;
+        }
+    }
   }
 
 
