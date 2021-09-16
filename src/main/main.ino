@@ -1,4 +1,4 @@
-#include <PPMReader.h>
+ #include <PPMReader.h>
 #include <Servo.h>
 
 
@@ -6,7 +6,7 @@
 byte interruptPin = 3;
 byte channelAmount = 6;
 PPMReader ppm(interruptPin, channelAmount);
-int channel_value_list[6];
+int channel_value_list[7];
 
 byte LEngine_PINS = 10;
 byte REngine_PINS = 9;
@@ -25,7 +25,14 @@ int LServo_pwm_value = 128;
 int RServo_pwm_value = 128;
 
 int throttle, pitch, roll, yaw = 128;
-int arm,flightmode=1000;
+int arm = 1000;
+int flightmode=1000;
+boolean do_calibration = false;
+boolean armed = false;
+
+int armed_pwm_value = 1050;
+int current_pwm_value = 1000;
+
 void setup() {
     Serial.begin(115200);
     delay(500);
@@ -39,20 +46,34 @@ void setup() {
 
     l_engine.attach(LEngine_PINS);
     r_engine.attach(REngine_PINS);
-   
+
+    if(do_calibration){
+        calibrate_esc();
+      }
+    
+    l_engine.writeMicroseconds(int(1000));
+    r_engine.writeMicroseconds(int(1000));
     //analogWrite(LEngine_PINS, 127); 
     //analogWrite(REngine_PINS, 128); 
 
     //analogWrite(LServo_PINS, 128); 
     //analogWrite(RServo_PINS, 128); 
-
-
-
 }
+
+
+void calibrate_esc(){
+    l_engine.writeMicroseconds(int(2000));
+    r_engine.writeMicroseconds(int(2000));
+    delay(6000);
+    l_engine.writeMicroseconds(int(1000));
+    r_engine.writeMicroseconds(int(1000));
+    delay(4000);
+  }
 
 void rc_ppm_read_values(){
   for (byte channel = 1; channel <= channelAmount; ++channel) {
         channel_value_list[channel] = ppm.latestValidChannelValue(channel, 0);
+        
         //Serial.print(String(channel_value_list[channel]) + "\t");
     }
   throttle = channel_value_list[3];
@@ -69,27 +90,81 @@ void compute_control(){
   }
 
 void compute_engine_control(){
-  LEngine_pwm_value = 1000 + 1000 * normalizeThrottle(throttle) + normalizeThrottle(throttle)*1000*normalizePRY(roll) +normalizeThrottle(throttle)*1000*normalizePRY(yaw);
-  REngine_pwm_value = 1000 + 1000 * normalizeThrottle(throttle) - normalizeThrottle(throttle)*1000*normalizePRY(roll) -normalizeThrottle(throttle)*1000*normalizePRY(yaw);
+  if (flightmode<1333){
+      LEngine_pwm_value = 1000 + 1000 * normalizeThrottle(throttle) + (normalizeThrottle(throttle)/5+0.2)*1000*normalizePRY(roll)*abs(normalizePRY(roll));// +(normalizeThrottle(throttle)/5+0.2)*1000*normalizePRY(yaw)*abs(normalizePRY(yaw));
+      REngine_pwm_value = 1000 + 1000 * normalizeThrottle(throttle) - (normalizeThrottle(throttle)/5+0.2)*1000*normalizePRY(roll)*abs(normalizePRY(roll));// -(normalizeThrottle(throttle)/5+0.2)*1000*normalizePRY(yaw)*abs(normalizePRY(yaw));
+    }
+  else{
+    if (flightmode<1666){
+        LEngine_pwm_value = 1000 + 1000 * normalizeThrottle(throttle) + (0.2)*1000*normalizePRY(roll)*abs(normalizePRY(roll));// +(normalizeThrottle(throttle)/5+0.2)*1000*normalizePRY(yaw)*abs(normalizePRY(yaw));
+        REngine_pwm_value = 1000 + 1000 * normalizeThrottle(throttle) - (0.2)*1000*normalizePRY(roll)*abs(normalizePRY(roll));// -(normalizeThrottle(throttle)/5+0.2)*1000*normalizePRY(yaw)*abs(normalizePRY(yaw));
+
+      }
+    else{
+        LEngine_pwm_value=LEngine_pwm_value;
+        REngine_pwm_value=REngine_pwm_value;
+      }
+    }
+  //LEngine_pwm_value = 1000 + 1000 * normalizeThrottle(throttle) + (normalizeThrottle(throttle)/5+0.2)*1000*normalizePRY(roll)*abs(normalizePRY(roll));// +(normalizeThrottle(throttle)/5+0.2)*1000*normalizePRY(yaw)*abs(normalizePRY(yaw));
+  //REngine_pwm_value = 1000 + 1000 * normalizeThrottle(throttle) - (normalizeThrottle(throttle)/5+0.2)*1000*normalizePRY(roll)*abs(normalizePRY(roll));// -(normalizeThrottle(throttle)/5+0.2)*1000*normalizePRY(yaw)*abs(normalizePRY(yaw));
   if(arm<1500){
       LEngine_pwm_value=1000;
       REngine_pwm_value=1000;
+      armed = false;
     }
   else{
-      if(LEngine_pwm_value<1050){
-          LEngine_pwm_value=1050;
-        }
-      if(REngine_pwm_value<1050){
-          REngine_pwm_value=1050;
-        }
+      start_engine_or_hold_speed();
+      armed = true;
     }
+  }
+
+void start_engine_or_hold_speed(){
+    if(armed){
+      if(LEngine_pwm_value<armed_pwm_value){
+          LEngine_pwm_value=armed_pwm_value;
+        }
+      if(REngine_pwm_value<armed_pwm_value){
+          REngine_pwm_value=armed_pwm_value;
+        }
+      }
+    else{
+          while(current_pwm_value <= armed_pwm_value){
+              current_pwm_value += 10;
+              REngine_pwm_value=current_pwm_value;
+              LEngine_pwm_value=current_pwm_value;
+              delay(250);
+            } 
+        } 
   }
 
 
 void compute_servo_control(){
-  LServo_pwm_value =( 90 + 1*(80*normalizePRY(pitch)+80*normalizePRY(yaw)-80*normalizePRY(roll))); 
-  RServo_pwm_value =( 90 + -1*(80*normalizePRY(pitch)-80*normalizePRY(yaw)+80*normalizePRY(roll)));
-  }
+  int effective_servo_range = 60;
+  if(abs(pitch-1500)<25){
+      pitch=1500;
+    }
+  if(abs(roll-1500)<25){
+      roll=1500;
+    }
+  if(abs(yaw-1500)<25){
+      yaw=1500;
+    }
+  if (flightmode<1333){
+     LServo_pwm_value =( 90 + 1*(effective_servo_range*normalizePRY(pitch)+effective_servo_range*normalizePRY(yaw)-effective_servo_range*normalizePRY(roll))); 
+     RServo_pwm_value =( 90 + -1*(effective_servo_range*normalizePRY(pitch)-effective_servo_range*normalizePRY(yaw)+effective_servo_range*normalizePRY(roll)));
+     }
+  else{
+    if (flightmode<1666){
+        LServo_pwm_value =( 90 + 1*(effective_servo_range*normalizePRY(pitch)*abs(normalizePRY(pitch))+effective_servo_range*normalizePRY(yaw)*abs(normalizePRY(yaw))-effective_servo_range*normalizePRY(roll)*abs(normalizePRY(roll)))); 
+        RServo_pwm_value =( 90 + -1*(effective_servo_range*normalizePRY(pitch)*abs(normalizePRY(pitch))-effective_servo_range*normalizePRY(yaw)*abs(normalizePRY(yaw))+effective_servo_range*normalizePRY(roll)*abs(normalizePRY(roll))));
+      }
+    else{
+        LServo_pwm_value =( 90 + normalizeThrottle(throttle)*(effective_servo_range*normalizePRY(pitch)*abs(normalizePRY(pitch))+effective_servo_range*normalizePRY(yaw)*abs(normalizePRY(yaw))-effective_servo_range*normalizePRY(roll)*abs(normalizePRY(roll)))); 
+        RServo_pwm_value =( 90 + -normalizeThrottle(throttle)*(effective_servo_range*normalizePRY(pitch)*abs(normalizePRY(pitch))-effective_servo_range*normalizePRY(yaw)*abs(normalizePRY(yaw))+effective_servo_range*normalizePRY(roll)*abs(normalizePRY(roll))));
+      }
+    }
+  
+   }
 
 void apply_control(){
   apply_servo_control();
@@ -112,27 +187,12 @@ void apply_eingine_control(){
 
 void loop() {
     // Print latest valid values from all channels
-    float pre_time = micros();
     //handleSerial();
     rc_ppm_read_values();
     compute_control();
     apply_control();
-    
-    Serial.print(pitch);
-    Serial.print(" ");
+    print_all();
     
     
-    Serial.print(REngine_pwm_value);
-    Serial.print(" ");
-    
-    Serial.print(LServo_pwm_value);
-    Serial.print(" ");
-    
-    
-    Serial.print(RServo_pwm_value);
-    Serial.print(" ");
-    
-    Serial.print(micros()-pre_time);
-    Serial.println();
     //delay(5);
 }
